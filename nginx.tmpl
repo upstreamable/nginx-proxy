@@ -27,6 +27,10 @@ location {{ .Path }} {
 	{{ if eq .Proto "uwsgi" }}
 		include uwsgi_params;
 		uwsgi_pass {{ trim .Proto }}://{{ trim .Upstream }};
+	{{ else if eq .Proto "fastcgi" }}
+		root   {{ trim .Vhostroot }};
+		include fastcgi.conf;
+		fastcgi_pass {{ trim .Upstream }};
 	{{ else }}
 		proxy_pass {{ trim .Proto }}://{{ trim .Upstream }}/;
 	{{ end }}
@@ -309,12 +313,12 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "Vhostroot" $vhost_root) }}
 	{{ else }}
 		{{ range $path, $containers := $paths }}
 			{{ $sum := sha1 $path }}
 			{{ $upstream := printf "%s-%s" $host $sum }}
-			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
+			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream_name "Host" $host "Vhostroot" $vhost_root) }}
 		{{ end }}
 	{{ end }}
 }
@@ -343,12 +347,12 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "Vhostroot" $vhost_root) }}
 	{{ else }}
 		{{ range $path, $containers := $paths }}
 			{{ $sum := sha1 $path }}
 			{{ $upstream := printf "%s-%s" $upstream_name $sum }}
-			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host) }}
+			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host "Vhostroot" $vhost_root) }}
 		{{ end }}
 	{{ end }}
 }
