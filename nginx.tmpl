@@ -177,11 +177,11 @@ server {
 
 {{ if eq $nPaths 0 }}
 	# {{ $host }}
-	{{ template "upstream-definition" (dict "Upstream" $host "Containers" $containers "Networks" (json $CurrentContainer.Networks)) }}
+	{{ template "upstream-definition" (dict "Upstream" $upstream_name "Containers" $containers "Networks" (json $CurrentContainer.Networks)) }}
 {{ else }}
 	{{ range $path, $containers := $paths }}
 		{{ $sum := sha1 $path }}
-		{{ $upstream := printf "%s-%s" $host $sum }}
+		{{ $upstream := printf "%s-%s" $upstream_name $sum }}
 		# {{ $host }}{{ $path }}
 		{{ template "upstream-definition" (dict "Upstream" $upstream "Containers" $containers "Networks" $CurrentContainer.Networks) }}
 	{{ end }}
@@ -309,12 +309,12 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $host "Host" $host) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
 	{{ else }}
 		{{ range $path, $containers := $paths }}
 			{{ $sum := sha1 $path }}
 			{{ $upstream := printf "%s-%s" $host $sum }}
-			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host) }}
+			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
 		{{ end }}
 	{{ end }}
 }
@@ -343,11 +343,11 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $host "Host" $host) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host) }}
 	{{ else }}
 		{{ range $path, $containers := $paths }}
 			{{ $sum := sha1 $path }}
-			{{ $upstream := printf "%s-%s" $host $sum }}
+			{{ $upstream := printf "%s-%s" $upstream_name $sum }}
 			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host) }}
 		{{ end }}
 	{{ end }}
