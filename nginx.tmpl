@@ -32,7 +32,7 @@ location {{ .Path }} {
 		include fastcgi.conf;
 		fastcgi_pass {{ trim .Upstream }};
 	{{ else }}
-		proxy_pass {{ trim .Proto }}://{{ trim .Upstream }}/;
+		proxy_pass {{ trim .Proto }}://{{ trim .Upstream }};
 	{{ end }}
 
 	{{ if (exists (printf "/etc/nginx/htpasswd/%s" .Host)) }}
