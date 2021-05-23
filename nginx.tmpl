@@ -225,7 +225,6 @@ upstream {{ $upstream_name }} {
 {{/* Get the VIRTUAL_ROOT By containers w/ use fastcgi root */}}
 {{ $vhost_root := or (first (groupByKeys $containers "Env.VIRTUAL_ROOT")) "/var/www/public" }}
 
-
 {{/* Get the first cert name defined by containers w/ the same vhost */}}
 {{ $certName := (first (groupByKeys $containers "Env.CERT_NAME")) }}
 
@@ -251,7 +250,7 @@ server {
 	listen [::]:{{ $external_http_port }} {{ $default_server }};
 	{{ end }}
 	{{ $access_log }}
-	
+
 	# Do not HTTPS redirect Let'sEncrypt ACME challenge
 	location ^~ /.well-known/acme-challenge/ {
 		auth_basic off;
@@ -261,7 +260,7 @@ server {
 		try_files $uri =404;
 		break;
 	}
-	
+
 	location / {
 		return 301 https://$host$request_uri;
 	}
@@ -310,6 +309,219 @@ server {
 	include /etc/nginx/vhost.d/default;
 	{{ end }}
 
+	{{ if eq $proto "fastcgi-drupal" }}
+	root /mnt/assets/webroot_{{ $host }};
+	# Taken from https://github.com/wodby/nginx/blob/master/templates/presets/drupal9.conf.tmpl on 22/May/2021.
+	# Replaced getenv for $.env.VARIABLE statements.
+	{{ $static :=  or ($.Env.NGINX_STATIC_EXT_REGEX) "css|cur|js|jpe?g|gif|htc|ico|png|xml|otf|ttf|eot|woff|woff2|svg|mp4|svgz|ogg|ogv|pdf|pptx?|zip|tgz|gz|rar|bz2|doc|xls|exe|tar|mid|midi|wav|bmp|rtf|txt|map" }}
+
+	index index.php index.html;
+
+	include fastcgi.conf;
+
+	add_header  X-XSS-Protection '1; mode=block';
+
+	{{ if ($.Env.NGINX_DRUPAL_HIDE_HEADERS) }}
+	fastcgi_hide_header 'X-Drupal-Cache';
+	fastcgi_hide_header 'X-Generator';
+	fastcgi_hide_header 'X-Drupal-Dynamic-Cache';
+	{{ end }}
+
+	location / {
+		{{ if ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}
+		location ~* /sites/.+/files {
+			try_files $uri @file_proxy;
+		}
+		{{ end }}
+		location ~* /system/files/ {
+			include fastcgi.conf;
+			fastcgi_param QUERY_STRING $query_string;
+			fastcgi_param SCRIPT_NAME /index.php;
+			fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+			root   {{ trim $vhost_root }};
+			fastcgi_pass {{ trim $upstream_name }};
+			log_not_found off;
+		}
+
+		location ~* /sites/.+/files/private/ {
+			internal;
+		}
+
+		location ~* /files/styles/ {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			try_files $uri @drupal;
+		}
+
+		location ~* /sites/.+/files/.+\.txt {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			tcp_nodelay {{ or ($.Env.NGINX_STATIC_TCP_NODELAY) "off" }};
+			open_file_cache {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE) "max=1000 inactive=30s" }};
+			open_file_cache_valid {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_VALID) "30s" }};
+			open_file_cache_min_uses {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_MIN_USES) "2" }};
+			open_file_cache_errors {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_ERRORS) "off" }};
+		}
+
+		location ~* /sites/.+/files/advagg_css/ {
+			expires max;
+			add_header ETag '';
+			add_header Last-Modified 'Wed, 20 Jan 1988 04:20:42 GMT';
+			add_header Accept-Ranges '';
+			location ~* /sites/.*/files/advagg_css/.+\.css$ {
+				access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+				add_header Cache-Control "public, max-age=31536000, no-transform, immutable";
+				try_files $uri @drupal;
+			}
+		}
+
+		location ~* /sites/.+/files/advagg_js/ {
+			expires max;
+			add_header ETag '';
+			add_header Last-Modified 'Wed, 20 Jan 1988 04:20:42 GMT';
+			add_header Accept-Ranges '';
+			location ~* /sites/.*/files/advagg_js/.+\.js$ {
+				access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+				add_header Cache-Control "public, max-age=31536000, no-transform, immutable";
+				try_files $uri @drupal;
+			}
+		}
+
+		location ~* /admin/reports/hacked/.+/diff/ {
+			try_files $uri @drupal;
+		}
+		{{ if ($.Env.NGINX_DRUPAL_ALLOW_XML_ENDPOINTS) }}
+		location ~* ^.+\.xml {
+			try_files $uri @drupal;
+		}
+		{{ else }}
+		location ~* /rss.xml {
+			try_files $uri @drupal-no-args;
+		}
+
+		location ~* /sitemap.xml {
+			try_files $uri @drupal;
+		}
+		{{ end }}
+
+		location ~* ^(?:.+\.(?:make|txt|engine|inc|info|install|module|profile|po|pot|sh|.*sql|test|theme|tpl(?:\.php)?|xtmpl)|code-style\.pl|/Entries.*|/Repository|/Root|/Tag|/Template)$ {
+			return 404;
+		}
+
+		location ~* ^.+\.(?:{{ $static }})$ {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			tcp_nodelay {{ or ($.Env.NGINX_STATIC_TCP_NODELAY) "off" }};
+
+			add_header Pragma "cache";
+			add_header Cache-Control "public";
+
+			open_file_cache {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE) "max=1000 inactive=30s" }};
+			open_file_cache_valid {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_VALID) "30s" }};
+			open_file_cache_min_uses {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_MIN_USES) "2" }};
+			open_file_cache_errors {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_ERRORS) "off" }};
+
+			{{ if ($.Env.NGINX_STATIC_404_TRY_INDEX) }}
+			try_files $uri @drupal;
+			{{ end }}
+		}
+
+		try_files $uri @drupal;
+	}
+
+	{{ if ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}
+	location @file_proxy {
+		rewrite ^ {{ ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}$request_uri? permanent;
+	}
+	{{ end }}
+
+	location @drupal {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $query_string;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+		track_uploads {{ or ($.Env.NGINX_TRACK_UPLOADS) "uploads 60s" }};
+	}
+
+	location @drupal-no-args {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING q=$uri;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /index.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/install.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/rebuild.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ~* ^/core/authorize.php {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /core/authorize.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/core/authorize.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/modules/statistics/statistics.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /cron {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ~* ^/update.php {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /update.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/update.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ^~ /patches {
+		return 404;
+	}
+
+	location ^~ /backup {
+		return 404;
+	}
+
+	location ~* ^.+\.php$ {
+		return 404;
+	}
+
+	location ~ (?<upload_form_uri>.*)/x-progress-id:(?<upload_id>\d*) {
+		rewrite ^ $upload_form_uri?X-Progress-ID=$upload_id;
+	}
+
+	location ~ ^/progress$ {
+		upload_progress_json_output;
+		report_uploads uploads;
+	}
+	{{ else }}
 	location / {
 		{{ if eq $proto "uwsgi" }}
 		include uwsgi_params;
@@ -323,7 +535,6 @@ server {
 		{{ else }}
 		proxy_pass {{ trim $proto }}://{{ trim $upstream_name }};
 		{{ end }}
-
 		{{ if (exists (printf "/etc/nginx/htpasswd/%s" $host)) }}
 		auth_basic	"Restricted {{ $host }}";
 		auth_basic_user_file	{{ (printf "/etc/nginx/htpasswd/%s" $host) }};
@@ -334,6 +545,7 @@ server {
 		include /etc/nginx/vhost.d/default_location;
 		{{ end }}
 	}
+	{{ end }}
 }
 
 {{ end }}
@@ -359,6 +571,219 @@ server {
 	include /etc/nginx/vhost.d/default;
 	{{ end }}
 
+	{{ if eq $proto "fastcgi-drupal" }}
+	root /mnt/assets/webroot_{{ $host }};
+	# Taken from https://github.com/wodby/nginx/blob/master/templates/presets/drupal9.conf.tmpl on 22/May/2021.
+	# Replaced getenv for $.env.VARIABLE statements.
+	{{ $static :=  or ($.Env.NGINX_STATIC_EXT_REGEX) "css|cur|js|jpe?g|gif|htc|ico|png|xml|otf|ttf|eot|woff|woff2|svg|mp4|svgz|ogg|ogv|pdf|pptx?|zip|tgz|gz|rar|bz2|doc|xls|exe|tar|mid|midi|wav|bmp|rtf|txt|map" }}
+
+	index index.php index.html;
+
+	include fastcgi.conf;
+
+	add_header  X-XSS-Protection '1; mode=block';
+
+	{{ if ($.Env.NGINX_DRUPAL_HIDE_HEADERS) }}
+	fastcgi_hide_header 'X-Drupal-Cache';
+	fastcgi_hide_header 'X-Generator';
+	fastcgi_hide_header 'X-Drupal-Dynamic-Cache';
+	{{ end }}
+
+	location / {
+		{{ if ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}
+		location ~* /sites/.+/files {
+			try_files $uri @file_proxy;
+		}
+		{{ end }}
+		location ~* /system/files/ {
+			include fastcgi.conf;
+			fastcgi_param QUERY_STRING $query_string;
+			fastcgi_param SCRIPT_NAME /index.php;
+			fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+			root   {{ trim $vhost_root }};
+			fastcgi_pass {{ trim $upstream_name }};
+			log_not_found off;
+		}
+
+		location ~* /sites/.+/files/private/ {
+			internal;
+		}
+
+		location ~* /files/styles/ {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			try_files $uri @drupal;
+		}
+
+		location ~* /sites/.+/files/.+\.txt {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			tcp_nodelay {{ or ($.Env.NGINX_STATIC_TCP_NODELAY) "off" }};
+			open_file_cache {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE) "max=1000 inactive=30s" }};
+			open_file_cache_valid {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_VALID) "30s" }};
+			open_file_cache_min_uses {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_MIN_USES) "2" }};
+			open_file_cache_errors {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_ERRORS) "off" }};
+		}
+
+		location ~* /sites/.+/files/advagg_css/ {
+			expires max;
+			add_header ETag '';
+			add_header Last-Modified 'Wed, 20 Jan 1988 04:20:42 GMT';
+			add_header Accept-Ranges '';
+			location ~* /sites/.*/files/advagg_css/.+\.css$ {
+				access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+				add_header Cache-Control "public, max-age=31536000, no-transform, immutable";
+				try_files $uri @drupal;
+			}
+		}
+
+		location ~* /sites/.+/files/advagg_js/ {
+			expires max;
+			add_header ETag '';
+			add_header Last-Modified 'Wed, 20 Jan 1988 04:20:42 GMT';
+			add_header Accept-Ranges '';
+			location ~* /sites/.*/files/advagg_js/.+\.js$ {
+				access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+				add_header Cache-Control "public, max-age=31536000, no-transform, immutable";
+				try_files $uri @drupal;
+			}
+		}
+
+		location ~* /admin/reports/hacked/.+/diff/ {
+			try_files $uri @drupal;
+		}
+		{{ if ($.Env.NGINX_DRUPAL_ALLOW_XML_ENDPOINTS) }}
+		location ~* ^.+\.xml {
+			try_files $uri @drupal;
+		}
+		{{ else }}
+		location ~* /rss.xml {
+			try_files $uri @drupal-no-args;
+		}
+
+		location ~* /sitemap.xml {
+			try_files $uri @drupal;
+		}
+		{{ end }}
+
+		location ~* ^(?:.+\.(?:make|txt|engine|inc|info|install|module|profile|po|pot|sh|.*sql|test|theme|tpl(?:\.php)?|xtmpl)|code-style\.pl|/Entries.*|/Repository|/Root|/Tag|/Template)$ {
+			return 404;
+		}
+
+		location ~* ^.+\.(?:{{ $static }})$ {
+			access_log {{ or ($.Env.NGINX_STATIC_ACCESS_LOG) "off" }};
+			expires {{ or ($.Env.NGINX_STATIC_EXPIRES) "1y" }};
+			tcp_nodelay {{ or ($.Env.NGINX_STATIC_TCP_NODELAY) "off" }};
+
+			add_header Pragma "cache";
+			add_header Cache-Control "public";
+
+			open_file_cache {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE) "max=1000 inactive=30s" }};
+			open_file_cache_valid {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_VALID) "30s" }};
+			open_file_cache_min_uses {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_MIN_USES) "2" }};
+			open_file_cache_errors {{ or ($.Env.NGINX_STATIC_OPEN_FILE_CACHE_ERRORS) "off" }};
+
+			{{ if ($.Env.NGINX_STATIC_404_TRY_INDEX) }}
+			try_files $uri @drupal;
+			{{ end }}
+		}
+
+		try_files $uri @drupal;
+	}
+
+	{{ if ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}
+	location @file_proxy {
+		rewrite ^ {{ ($.Env.NGINX_DRUPAL_FILE_PROXY_URL) }}$request_uri? permanent;
+	}
+	{{ end }}
+
+	location @drupal {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $query_string;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+		track_uploads {{ or ($.Env.NGINX_TRACK_UPLOADS) "uploads 60s" }};
+	}
+
+	location @drupal-no-args {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING q=$uri;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /index.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/install.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/rebuild.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ~* ^/core/authorize.php {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /core/authorize.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/core/authorize.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /core/modules/statistics/statistics.php {
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location = /cron {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /index.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ~* ^/update.php {
+		include fastcgi.conf;
+		fastcgi_param QUERY_STRING $args;
+		fastcgi_param SCRIPT_NAME /update.php;
+		fastcgi_param SCRIPT_FILENAME $document_root/update.php;
+		root   {{ trim $vhost_root }};
+		fastcgi_pass {{ trim $upstream_name }};
+	}
+
+	location ^~ /patches {
+		return 404;
+	}
+
+	location ^~ /backup {
+		return 404;
+	}
+
+	location ~* ^.+\.php$ {
+		return 404;
+	}
+
+	location ~ (?<upload_form_uri>.*)/x-progress-id:(?<upload_id>\d*) {
+		rewrite ^ $upload_form_uri?X-Progress-ID=$upload_id;
+	}
+
+	location ~ ^/progress$ {
+		upload_progress_json_output;
+		report_uploads uploads;
+	}
+	{{ else }}
 	location / {
 		{{ if eq $proto "uwsgi" }}
 		include uwsgi_params;
@@ -382,6 +807,7 @@ server {
 		include /etc/nginx/vhost.d/default_location;
 		{{ end }}
 	}
+	{{ end }}
 }
 
 {{ if (and (not $is_https) (exists "/etc/nginx/certs/default.crt") (exists "/etc/nginx/certs/default.key")) }}
