@@ -47,12 +47,17 @@ RUN apk add --no-cache --virtual .run-deps \
 
 # Configure Nginx and apply fix for very long server names
 RUN echo "daemon off;" >> /etc/nginx/nginx.conf \
+   && sed -i '1s/^/load_module modules\/ngx_http_uploadprogress_module.so;\n/' /etc/nginx/nginx.conf \
+   && sed -i 's/http {/http {\n    upload_progress uploads 1m;/' /etc/nginx/nginx.conf \
+   && mkdir -p /shared/proxy-vhost.d \
+   && ln -s /shared/proxy-vhost.d /etc/nginx/vhost.d \
    && sed -i 's/worker_processes  1/worker_processes  auto/' /etc/nginx/nginx.conf \
    && sed -i 's/worker_connections  1024/worker_connections  10240/' /etc/nginx/nginx.conf
 
 # Install Forego + docker-gen
 COPY --from=forego /usr/local/bin/forego /usr/local/bin/forego
 COPY --from=dockergen /usr/local/bin/docker-gen /usr/local/bin/docker-gen
+COPY --from=upstreamable/nginx-with-uploadprogress:1.21.1 /etc/nginx/modules/ngx_http_uploadprogress_module.so /etc/nginx/modules/ngx_http_uploadprogress_module.so
 
 # Add DOCKER_GEN_VERSION environment variable
 # Because some external projects rely on it
