@@ -54,6 +54,10 @@ RUN apk add --no-cache --virtual .run-deps \
 
 # Configure Nginx
 RUN echo "daemon off;" >> /etc/nginx/nginx.conf \
+   && sed -i '1s/^/load_module modules\/ngx_http_uploadprogress_module.so;\n/' /etc/nginx/nginx.conf \
+   && sed -i 's/http {/http {\n    upload_progress uploads 1m;/' /etc/nginx/nginx.conf \
+   && mkdir -p /shared/proxy-vhost.d \
+   && ln -s /shared/proxy-vhost.d /etc/nginx/vhost.d \
    && sed -i 's/worker_processes  1/worker_processes  auto/' /etc/nginx/nginx.conf \
    && sed -i 's/worker_connections  1024/worker_connections  10240/' /etc/nginx/nginx.conf \
    && mkdir -p '/etc/nginx/dhparam'
@@ -61,10 +65,12 @@ RUN echo "daemon off;" >> /etc/nginx/nginx.conf \
 # Install Forego + docker-gen
 COPY --from=forego /usr/local/bin/forego /usr/local/bin/forego
 COPY --from=dockergen /usr/local/bin/docker-gen /usr/local/bin/docker-gen
+COPY --from=upstreamable/nginx-with-uploadprogress:1.21.6 /etc/nginx/modules/ngx_http_uploadprogress_module.so /etc/nginx/modules/ngx_http_uploadprogress_module.so
 
 COPY network_internal.conf /etc/nginx/
 
 COPY app nginx.tmpl LICENSE /app/
+RUN cat /app/templates/*.tmpl >> /app/nginx.tmpl
 WORKDIR /app/
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

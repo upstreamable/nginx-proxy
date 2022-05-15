@@ -51,13 +51,20 @@
 {{ end }}
 
 {{ define "location" }}
+{{ if eq .Proto "fastcgi-drupal" }}
+	{{ template "protocol-fastcgi-drupal" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+{{ else if eq .Proto "fastcgi-nextcloud" }}
+	{{ template "protocol-fastcgi-nextcloud" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+{{ else }}
 location {{ .Path }} {
 	{{ if eq .NetworkTag "internal" }}
 	# Only allow traffic from internal clients
 	include /etc/nginx/network_internal.conf;
 	{{ end }}
 
-	{{ if eq .Proto "uwsgi" }}
+	{{ if (exists (printf "/etc/nginx/vhost.d/%s_location_replace" .Host)) }}
+		include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
+	{{ else if eq .Proto "uwsgi" }}
 		include uwsgi_params;
 		uwsgi_pass {{ trim .Proto }}://{{ trim .Upstream }};
 	{{ else if eq .Proto "fastcgi" }}
@@ -83,6 +90,7 @@ location {{ .Path }} {
 		include /etc/nginx/vhost.d/default_location;
 	{{ end }}
 }
+{{ end }}
 {{ end }}
 
 {{ define "upstream" }}
