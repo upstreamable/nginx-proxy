@@ -1,0 +1,74 @@
+{{ define "protocol-fastcgi-wordpress" }}
+
+location {{ .Path }} {
+    # Copied from original location template. See `define "location"` in nginx.tmpl.
+    {{ if eq .NetworkTag "internal" }}
+    # Only allow traffic from internal clients
+    include /etc/nginx/network_internal.conf;
+    {{ end }}
+    {{ if (exists (printf "/etc/nginx/htpasswd/%s" .Host)) }}
+    auth_basic	"Restricted {{ .Host }}";
+    auth_basic_user_file	{{ (printf "/etc/nginx/htpasswd/%s" .Host) }};
+    {{ end }}
+
+    {{ if (exists (printf "/etc/nginx/vhost.d/%s_%s_location" .Host (sha1 .Path) )) }}
+    include {{ printf "/etc/nginx/vhost.d/%s_%s_location" .Host (sha1 .Path) }};
+    {{ else if (exists (printf "/etc/nginx/vhost.d/%s_location" .Host)) }}
+    include {{ printf "/etc/nginx/vhost.d/%s_location" .Host}};
+    {{ else if (exists "/etc/nginx/vhost.d/default_location") }}
+    include /etc/nginx/vhost.d/default_location;
+    {{ end }}
+
+    # Root for all static files.
+    root /mnt/assets/webroot_{{ .Host }};
+
+
+    # Configuration taken from https://www.nginx.com/resources/wiki/start/topics/recipes/wordpress/
+
+    # Taken from https://docs.nextcloud.com/server/24/admin_manual/installation/nginx.html on 8/May/2022.
+    # Set max body size to 4G
+    # Replaced `fastcgi_pass php-handler;` for:
+    # fastcgi_pass {{ trim .Upstream }};
+    # Pass VhostRoot instead of $document_root and set DOCUMENT_ROOT to VhostRoot like:
+    # fastcgi_param SCRIPT_FILENAME {{ trim .VhostRoot }}$fastcgi_script_name;
+    # fastcgi_param DOCUMENT_ROOT {{ trim .VhostRoot }};
+
+    # set max upload size and increase upload timeout:
+    client_max_body_size 4000M;
+    client_body_timeout 300s;
+    fastcgi_buffers 64 4K;
+
+    index index.php;
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+
+    location / {
+        # This is cool because no php is touched for static content.
+        # include the "?$args" part so non-default permalinks doesn't break when using query string
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        #NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+        include fastcgi_params;
+        fastcgi_intercept_errors on;
+        fastcgi_pass {{ trim .Upstream }};
+        fastcgi_param SCRIPT_FILENAME {{ trim .VhostRoot }}$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT {{ trim .VhostRoot }};
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+        expires max;
+        log_not_found off;
+    }
+}
+{{ end }}

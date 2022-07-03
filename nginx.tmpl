@@ -55,6 +55,8 @@
 	{{ template "protocol-fastcgi-drupal" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
 {{ else if eq .Proto "fastcgi-nextcloud" }}
 	{{ template "protocol-fastcgi-nextcloud" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+{{ else if eq .Proto "fastcgi-wordpress" }}
+	{{ template "protocol-fastcgi-wordpress" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
 {{ else if eq .Proto "static-volume" }}
 	{{ template "protocol-static-volume" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
 {{ else }}
