@@ -51,7 +51,11 @@
 {{ end }}
 
 {{ define "location" }}
-{{ if eq .Proto "fastcgi-drupal" }}
+{{ if (exists (printf "/etc/nginx/vhost.d/%s_location_replace" .Host)) }}
+	location {{ .Path }} {
+		include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
+	}
+{{ else if eq .Proto "fastcgi-drupal" }}
 	{{ template "protocol-fastcgi-drupal" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
 {{ else if eq .Proto "fastcgi-nextcloud" }}
 	{{ template "protocol-fastcgi-nextcloud" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
@@ -66,9 +70,7 @@ location {{ .Path }} {
 	include /etc/nginx/network_internal.conf;
 	{{ end }}
 
-	{{ if (exists (printf "/etc/nginx/vhost.d/%s_location_replace" .Host)) }}
-		include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
-	{{ else if eq .Proto "uwsgi" }}
+	{{ if eq .Proto "uwsgi" }}
 		include uwsgi_params;
 		uwsgi_pass {{ trim .Proto }}://{{ trim .Upstream }};
 	{{ else if eq .Proto "fastcgi" }}
