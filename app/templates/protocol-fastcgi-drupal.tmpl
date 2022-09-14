@@ -2,6 +2,12 @@
 # Named location can not be nested inside a location.
 location @drupal-{{ trim .Upstream }} {
     include fastcgi.conf;
+    {{ if $.Env.FASTCGI_SEND_TIMEOUT }}
+    fastcgi_send_timeout {{ $.Env.FASTCGI_SEND_TIMEOUT }};
+    {{ end }}
+    {{ if $.Env.FASTCGI_READ_TIMEOUT }}
+    fastcgi_read_timeout {{ $.Env.FASTCGI_READ_TIMEOUT }};
+    {{ end }}
     fastcgi_param QUERY_STRING $query_string;
     fastcgi_param SCRIPT_NAME /index.php;
     fastcgi_param SCRIPT_FILENAME $document_root/index.php;
