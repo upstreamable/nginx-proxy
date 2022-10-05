@@ -55,6 +55,10 @@
 	location {{ .Path }} {
 		include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
 	}
+{{ else if (exists (printf "/etc/nginx/vhost.d/%s_location_replace.d" .Host)) }}
+	location {{ .Path }} {
+		include {{ printf "/etc/nginx/vhost.d/%s_location_replace.d/*.conf" .Host}};
+	}
 {{ else if eq .Proto "fastcgi-drupal" }}
 	{{ template "protocol-fastcgi-drupal" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
 {{ else if eq .Proto "fastcgi-nextcloud" }}
