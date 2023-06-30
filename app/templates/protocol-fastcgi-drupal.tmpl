@@ -83,7 +83,7 @@ location {{ .Path }} {
             internal;
         }
 
-        location ~* /files/styles/ {
+        location ~* /files/(css|js|styles)/ {
             access_log {{ "off" }};
             expires {{ "1y" }};
             try_files $uri @drupal-{{ trim .Upstream }};
