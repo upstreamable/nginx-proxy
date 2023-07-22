@@ -178,6 +178,27 @@
     {{- if exists $override }}
     include {{ $override }};
     {{- else }}
+
+    # Replaces and protocols
+    {{ if (exists (printf "/etc/nginx/vhost.d/%s_location_replace" .Host)) }}
+       location {{ .Path }} {
+               include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
+       }
+    {{ else if (exists (printf "/etc/nginx/vhost.d/%s_location_replace.d" .Host)) }}
+       location {{ .Path }} {
+               include {{ printf "/etc/nginx/vhost.d/%s_location_replace.d/*.conf" .Host}};
+       }
+    {{ else if eq .Proto "fastcgi-drupal" }}
+       {{ template "protocol-fastcgi-drupal" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+    {{ else if eq .Proto "fastcgi-nextcloud" }}
+       {{ template "protocol-fastcgi-nextcloud" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+    {{ else if eq .Proto "fastcgi-wordpress" }}
+       {{ template "protocol-fastcgi-wordpress" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+    {{ else if eq .Proto "static-volume" }}
+       {{ template "protocol-static-volume" (dict "Path" .Path "Upstream" .Upstream "Host" .Host "VhostRoot" .VhostRoot "Dest" .Dest "NetworkTag" .NetworkTag) }}
+    {{ else }}
+    # End custom part of replaces and protocols.
+
         {{- $keepalive := first (keys (groupByLabel .Containers "com.github.nginx-proxy.nginx-proxy.keepalive")) }}
     location {{ .Path }} {
         {{- if eq .NetworkTag "internal" }}
@@ -190,7 +211,14 @@
         uwsgi_pass {{ trim .Proto }}://{{ trim .Upstream }};
         {{- else if eq .Proto "fastcgi" }}
         root {{ trim .VhostRoot }};
-        include fastcgi_params;
+        include fastcgi.conf;
+        {{ if env "FASTCGI_SEND_TIMEOUT" }}
+        fastcgi_send_timeout {{ env "FASTCGI_SEND_TIMEOUT" }};
+        {{ end }}
+        {{ if env "FASTCGI_READ_TIMEOUT" }}
+        fastcgi_read_timeout {{ env "FASTCGI_READ_TIMEOUT" }};
+        {{ end }}
+
         fastcgi_pass {{ trim .Upstream }};
             {{- if $keepalive }}
         fastcgi_keep_conn on;
@@ -216,6 +244,7 @@
         {{- end }}
     }
     {{- end }}
+{{- end }}
 {{- end }}
 
 {{- define "upstream" }}
