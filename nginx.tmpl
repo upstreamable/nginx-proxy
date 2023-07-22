@@ -251,6 +251,55 @@
     include {{ $override }};
     {{- else }}
         {{- $keepalive := $vpath.keepalive }}
+
+    # Replaces and protocols
+    {{ if (exists (printf "/etc/nginx/vhost.d/%s_location_replace" .Host)) }}
+       location {{ .Path }} {
+               include {{ printf "/etc/nginx/vhost.d/%s_location_replace" .Host}};
+       }
+    {{ else if (exists (printf "/etc/nginx/vhost.d/%s_location_replace.d" .Host)) }}
+       location {{ .Path }} {
+               include {{ printf "/etc/nginx/vhost.d/%s_location_replace.d/*.conf" .Host}};
+       }
+    {{ else if eq $vpath.proto "fastcgi-drupal" }}
+       {{ template "protocol-fastcgi-drupal" (dict
+       "Path" .Path
+       "Upstream" $vpath.upstream
+       "Host" .Host
+       "VhostRoot" .VhostRoot
+       "Dest" $vpath.dest
+       "NetworkTag" $vpath.network_tag
+       ) }}
+    {{ else if eq $vpath.proto "fastcgi-nextcloud" }}
+       {{ template "protocol-fastcgi-nextcloud" (dict
+       "Path" .Path
+       "Upstream" $vpath.upstream
+       "Host" .Host
+       "VhostRoot" .VhostRoot
+       "Dest" $vpath.dest
+       "NetworkTag" $vpath.network_tag
+       ) }}
+    {{ else if eq $vpath.proto "fastcgi-wordpress" }}
+       {{ template "protocol-fastcgi-wordpress" (dict
+       "Path" .Path
+       "Upstream" $vpath.upstream
+       "Host" .Host
+       "VhostRoot" .VhostRoot
+       "Dest" $vpath.dest
+       "NetworkTag" $vpath.network_tag
+       ) }}
+    {{ else if eq $vpath.proto "static-volume" }}
+       {{ template "protocol-static-volume" (dict
+       "Path" .Path
+       "Upstream" $vpath.upstream
+       "Host" .Host
+       "VhostRoot" .VhostRoot
+       "Dest" $vpath.dest
+       "NetworkTag" $vpath.network_tag
+       ) }}
+    {{ else }}
+    # End custom part of replaces and protocols.
+
     location {{ .Path }} {
         {{- if eq $vpath.network_tag "internal" }}
         # Only allow traffic from internal clients
@@ -270,6 +319,13 @@
             {{- if ne $keepalive "disabled" }}
         fastcgi_keep_conn on;
             {{- end }}
+        {{ if env "FASTCGI_SEND_TIMEOUT" }}
+        fastcgi_send_timeout {{ env "FASTCGI_SEND_TIMEOUT" }};
+        {{ end }}
+        {{ if env "FASTCGI_READ_TIMEOUT" }}
+        fastcgi_read_timeout {{ env "FASTCGI_READ_TIMEOUT" }};
+        {{ end }}
+
         {{- else if eq $proto "grpc" }}
         grpc_pass {{ trim $proto }}://{{ trim $upstream }};
         {{- else if eq $proto "grpcs" }}
@@ -296,6 +352,7 @@
         {{- end }}
     }
     {{- end }}
+{{- end }}
 {{- end }}
 
 {{- define "upstream" }}
@@ -474,7 +531,7 @@ proxy_set_header Proxy "";
     {{- range $hostname, $vhost := $parsedVhosts }}
         {{- $vhost_data := when (hasKey $globals.vhosts $hostname) (get $globals.vhosts $hostname) (dict) }}
         {{- $paths := coalesce $vhost_data.paths (dict) }}
-        
+
         {{- if (empty $vhost) }}
             {{ $vhost = dict "/" (dict) }}
         {{- end }}

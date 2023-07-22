@@ -6,7 +6,7 @@ FROM docker.io/nginxproxy/forego:0.18.1 AS forego
 FROM docker.io/library/nginx:1.27.0-alpine
 
 ARG NGINX_PROXY_VERSION
-# Add DOCKER_GEN_VERSION environment variable because 
+# Add DOCKER_GEN_VERSION environment variable because
 # acme-companion rely on it (but the actual value is not important)
 ARG DOCKER_GEN_VERSION="unknown"
 ENV NGINX_PROXY_VERSION=${NGINX_PROXY_VERSION} \
@@ -32,6 +32,7 @@ COPY --from=docker-gen /usr/local/bin/docker-gen /usr/local/bin/docker-gen
 COPY network_internal.conf /etc/nginx/
 
 COPY app nginx.tmpl LICENSE /app/
+RUN cat /app/templates/*.tmpl >> /app/nginx.tmpl
 WORKDIR /app/
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
