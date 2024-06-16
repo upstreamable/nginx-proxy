@@ -33,6 +33,9 @@ COPY network_internal.conf /etc/nginx/
 
 COPY app nginx.tmpl LICENSE /app/
 RUN cat /app/templates/*.tmpl >> /app/nginx.tmpl
+# Apply the patch from https://trac.nginx.org/nginx/ticket/2216
+RUN sed -i 's/application.javascript/text\/javascript       /g' /etc/nginx/mime.types && sed -i 's/js;/js mjs;/g' /etc/nginx/mime.types
+
 WORKDIR /app/
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
